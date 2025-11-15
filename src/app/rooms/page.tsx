@@ -1,16 +1,34 @@
 "use client";
 
 import { supabase } from "@/lib/supabaseClient";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { Chambre } from "@/lib/type";
 import RoomCard from "@/components/roomcard";
 import Navbar from "@/components/navbar";
 import Footer from "@/components/footer";
+import RoomModal from "@/components/modalroom";
 
 
 
 export default function roomsPage() {
     const [chambres, setChambres] = useState<Chambre[]>([]);
+     const [selectedRoom, setSelectedRoom] = useState<Chambre | null>(null);
+    const [isModalOpen, setIsModalOpen] = useState(false);
+
+    const handleShowDetails = (room: Chambre) => {
+        setSelectedRoom(room);
+        setIsModalOpen(true);
+    };
+
+    const handleCloseModal = () => {
+        setIsModalOpen(false);
+        setSelectedRoom(null);
+   };
+
+    const handleReserve = (room: Chambre) => {
+    // Logique de réservation
+    console.log('Réserver la chambre:', room);
+   };
 
     // Récupération des données des chambres depuis Supabase
     useEffect(() => {
@@ -38,9 +56,17 @@ export default function roomsPage() {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
                 {chambres.map((chambre) => (
-                    <RoomCard key={chambre.id} room={chambre} />
+                    <RoomCard key={chambre.id} room={chambre} onDetails={() => handleShowDetails(chambre)} onReserve={() => handleReserve(chambre)} />
                 ))}
             </div>
+            {selectedRoom && (
+                <RoomModal
+                    room={selectedRoom}
+                    isOpen={isModalOpen}
+                    onClose={handleCloseModal}
+                    onReserve={handleReserve}
+                />
+            )}
         </section>
         <Footer />
        </>
