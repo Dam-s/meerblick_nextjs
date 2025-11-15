@@ -19,8 +19,8 @@ export default function Navbar() {
           {/* Logo */}
           <div className="flex items-center gap-2  mt-4 w-20 h-20">
             <Image
-             src={logo_meerblick}
-             alt="logo meerblick"
+              src={logo_meerblick}
+              alt="logo meerblick"
             />
           </div>
 

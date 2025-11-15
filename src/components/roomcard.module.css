@@ -1,0 +1,79 @@
+/* Styles pour le carrousel react-slick */
+.carouselContainer {
+  position: relative;
+  height: 16rem; /* 64 = h-64 */
+  overflow: hidden;
+}
+
+.carouselContainer :global(.slick-slider) {
+  height: 100%;
+}
+
+.carouselContainer :global(.slick-list) {
+  height: 100%;
+}
+
+.carouselContainer :global(.slick-track) {
+  height: 100%;
+  display: flex;
+  align-items: center;
+}
+
+.carouselContainer :global(.slick-slide) {
+  height: 100%;
+}
+
+.carouselContainer :global(.slick-slide > div) {
+  height: 100%;
+}
+
+/* Flèches de navigation */
+.carouselContainer :global(.slick-prev),
+.carouselContainer :global(.slick-next) {
+  z-index: 10;
+  width: 40px;
+  height: 40px;
+}
+
+.carouselContainer :global(.slick-prev) {
+  left: 10px;
+}
+
+.carouselContainer :global(.slick-next) {
+  right: 10px;
+}
+
+.carouselContainer :global(.slick-prev:before),
+.carouselContainer :global(.slick-next:before) {
+  font-size: 40px;
+  opacity: 0.75;
+}
+
+.carouselContainer :global(.slick-prev:hover:before),
+.carouselContainer :global(.slick-next:hover:before) {
+  opacity: 1;
+}
+
+/* Points de navigation */
+.carouselContainer :global(.slick-dots) {
+  bottom: 15px;
+  z-index: 10;
+}
+
+.carouselContainer :global(.slick-dots li button:before) {
+  font-size: 10px;
+  color: white;
+  opacity: 0.5;
+}
+
+.carouselContainer :global(.slick-dots li.slick-active button:before) {
+  color: white;
+  opacity: 1;
+}
+
+/* Correction pour les images */
+.slideImage {
+  position: relative;
+  height: 16rem;
+  width: 100%;
+}
