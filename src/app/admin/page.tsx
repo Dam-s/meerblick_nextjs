@@ -102,6 +102,18 @@ export default function AdminPage() {
 
   // Recherche et filtres
   const [searchTerm, setSearchTerm] = useState('');
+  
+  // Statistiques
+  const [stats, setStats] = useState({
+    revenuTotal: 0,
+    totalClients: 0,
+    tauxOccupation: 0,
+    reservationsCeMois: 0
+  });
+  
+  // Upload de photos
+  const [uploadingPhotos, setUploadingPhotos] = useState(false);
+  const [newEquipement, setNewEquipement] = useState('');
 
   // Vérification admin et chargement des données
   useEffect(() => {
@@ -144,7 +156,8 @@ export default function AdminPage() {
     await Promise.all([
       loadClients(),
       loadChambres(),
-      loadReservations()
+      loadReservations(),
+      calculateStats()
     ]);
   };
 
@@ -208,6 +221,7 @@ export default function AdminPage() {
         equipements: [],
         photos: []
       });
+      setNewEquipement('');
       setReservationForm({
         date_debut: '',
         date_fin: '',
@@ -238,12 +252,24 @@ export default function AdminPage() {
         }
         await loadClients();
       } else if (activeTab === 'chambres') {
+        // Préparer les données de la chambre avec la date de création
+        const chambreData = {
+          ...chambreForm,
+          created_at: modalType === 'create' ? new Date().toISOString() : undefined
+        };
+        
+        // Enlever created_at si c'est une mise à jour
+        if (modalType === 'edit') {
+          delete chambreData.created_at;
+        }
+        
         if (modalType === 'create') {
-          await supabase.from("chambre").insert([chambreForm]);
+          await supabase.from("chambre").insert([chambreData]);
         } else if (modalType === 'edit') {
-          await supabase.from("chambre").update(chambreForm).eq('id', selectedItem.id);
+          await supabase.from("chambre").update(chambreData).eq('id', selectedItem.id);
         }
         await loadChambres();
+        await calculateStats(); // Recalculer les stats après modification
       } else if (activeTab === 'reservations') {
         if (modalType === 'create') {
           await supabase.from("reservation").insert([reservationForm]);
@@ -277,6 +303,104 @@ export default function AdminPage() {
     } catch (error) {
       console.error("Erreur suppression:", error);
       alert("Erreur lors de la suppression");
+    }
+  };
+
+  // Upload de photos vers le bucket
+  const uploadPhotos = async (files: FileList) => {
+    setUploadingPhotos(true);
+    const uploadedUrls: string[] = [];
+    
+    try {
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const fileName = `${Date.now()}-${file.name}`;
+        
+        const { data, error } = await supabase.storage
+          .from('photos_chambres')
+          .upload(fileName, file);
+        
+        if (error) {
+          console.error('Erreur upload:', error);
+          continue;
+        }
+        
+        // Récupérer l'URL publique
+        const { data: { publicUrl } } = supabase.storage
+          .from('photos_chambres')
+          .getPublicUrl(fileName);
+        
+        uploadedUrls.push(publicUrl);
+      }
+    } catch (error) {
+      console.error('Erreur lors de l\'upload:', error);
+    } finally {
+      setUploadingPhotos(false);
+    }
+    
+    return uploadedUrls;
+  };
+  
+  // Supprimer une photo du bucket
+  const deletePhoto = async (photoUrl: string) => {
+    try {
+      // Extraire le nom du fichier de l'URL
+      const fileName = photoUrl.split('/').pop();
+      if (fileName) {
+        await supabase.storage
+          .from('photos_chambres')
+          .remove([fileName]);
+      }
+    } catch (error) {
+      console.error('Erreur suppression photo:', error);
+    }
+  };
+
+  // Calculer les statistiques
+  const calculateStats = async () => {
+    try {
+      // 1. Revenus totaux (somme des montants des réservations confirmées)
+      const { data: revenusData } = await supabase
+        .from('reservation')
+        .select('montant_total')
+        .eq('statut', 'confirmee');
+      
+      const revenuTotal = revenusData?.reduce((sum, res) => sum + res.montant_total, 0) || 0;
+
+      // 2. Nombre total de clients
+      const { count: totalClients } = await supabase
+        .from('client')
+        .select('*', { count: 'exact', head: true });
+
+      // 3. Taux d'occupation (chambres occupées vs total)
+      const { data: chambresData } = await supabase
+        .from('chambre')
+        .select('isDisponible');
+      
+      const totalChambres = chambresData?.length || 0;
+      const chambresOccupees = chambresData?.filter(c => !c.isDisponible).length || 0;
+      const tauxOccupation = totalChambres > 0 ? (chambresOccupees / totalChambres) * 100 : 0;
+
+      // 4. Réservations ce mois-ci
+      const currentMonth = new Date().getMonth();
+      const currentYear = new Date().getFullYear();
+      const startOfMonth = new Date(currentYear, currentMonth, 1).toISOString();
+      const endOfMonth = new Date(currentYear, currentMonth + 1, 0, 23, 59, 59).toISOString();
+      
+      const { count: reservationsCeMois } = await supabase
+        .from('reservation')
+        .select('*', { count: 'exact', head: true })
+        .gte('date_reservation', startOfMonth)
+        .lte('date_reservation', endOfMonth);
+
+      setStats({
+        revenuTotal,
+        totalClients: totalClients || 0,
+        tauxOccupation: Math.round(tauxOccupation),
+        reservationsCeMois: reservationsCeMois || 0
+      });
+    } catch (error) {
+      console.error('Erreur calcul statistiques:', error);
     }
   };
 
@@ -331,6 +455,63 @@ export default function AdminPage() {
             <p className="text-gray-600">
               Gestion des clients, chambres et réservations
             </p>
+          </div>
+
+          {/* Statistiques */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+            {/* Revenus totaux */}
+            <div className="bg-white rounded-lg shadow-sm border p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-600">Revenus totaux</p>
+                  <p className="text-3xl font-bold text-green-600">${stats.revenuTotal.toFixed(0)}</p>
+                </div>
+                <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center">
+                  <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1" />
+                  </svg>
+                </div>
+              </div>
+            </div>
+
+            {/* Total clients */}
+            <div className="bg-white rounded-lg shadow-sm border p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-600">Total clients</p>
+                  <p className="text-3xl font-bold text-blue-600">{stats.totalClients}</p>
+                </div>
+                <div className="w-12 h-12 bg-blue-100 rounded-lg flex items-center justify-center">
+                  <Users className="w-6 h-6 text-blue-600" />
+                </div>
+              </div>
+            </div>
+
+            {/* Taux d'occupation */}
+            <div className="bg-white rounded-lg shadow-sm border p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-600">Taux d'occupation</p>
+                  <p className="text-3xl font-bold text-purple-600">{stats.tauxOccupation}%</p>
+                </div>
+                <div className="w-12 h-12 bg-purple-100 rounded-lg flex items-center justify-center">
+                  <Bed className="w-6 h-6 text-purple-600" />
+                </div>
+              </div>
+            </div>
+
+            {/* Réservations ce mois */}
+            <div className="bg-white rounded-lg shadow-sm border p-6">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium text-gray-600">Réservations ce mois</p>
+                  <p className="text-3xl font-bold text-orange-600">{stats.reservationsCeMois}</p>
+                </div>
+                <div className="w-12 h-12 bg-orange-100 rounded-lg flex items-center justify-center">
+                  <Calendar className="w-6 h-6 text-orange-600" />
+                </div>
+              </div>
+            </div>
           </div>
 
           {/* Onglets */}
@@ -701,41 +882,53 @@ export default function AdminPage() {
 
               {/* Formulaire Chambre */}
               {activeTab === 'chambres' && modalType !== 'view' && (
-                <div className="space-y-4">
+                <div className="space-y-6">
+                  {/* Informations de base */}
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Numéro
+                        Numéro *
                       </label>
                       <input
                         type="text"
                         value={chambreForm.numero}
                         onChange={(e) => setChambreForm({ ...chambreForm, numero: e.target.value })}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        required
                       />
                     </div>
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Type de chambre
+                        Type de chambre *
                       </label>
-                      <input
-                        type="text"
+                      <select
                         value={chambreForm.type_chambre}
                         onChange={(e) => setChambreForm({ ...chambreForm, type_chambre: e.target.value })}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                      />
+                        required
+                      >
+                        <option value="">Sélectionner un type</option>
+                        <option value="Chambre Standard">Chambre Standard</option>
+                        <option value="Suite Deluxe">Suite Deluxe</option>
+                        <option value="Penthouse Premium">Penthouse Premium</option>
+                        <option value="Suite Jardin">Suite Jardin</option>
+                      </select>
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
+                  
+                  <div className="grid grid-cols-3 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Capacité
+                        Capacité *
                       </label>
                       <input
                         type="number"
+                        min="1"
+                        max="8"
                         value={chambreForm.capacite}
                         onChange={(e) => setChambreForm({ ...chambreForm, capacite: Number(e.target.value) })}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        required
                       />
                     </div>
                     <div>
@@ -744,22 +937,46 @@ export default function AdminPage() {
                       </label>
                       <input
                         type="number"
+                        min="1"
+                        max="20"
                         value={chambreForm.etage}
                         onChange={(e) => setChambreForm({ ...chambreForm, etage: Number(e.target.value) })}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       />
                     </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        Vue
+                      </label>
+                      <select
+                        value={chambreForm.vue}
+                        onChange={(e) => setChambreForm({ ...chambreForm, vue: e.target.value })}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      >
+                        <option value="">Sélectionner une vue</option>
+                        <option value="Mer">Mer</option>
+                        <option value="Montagne">Montagne</option>
+                        <option value="Jardin">Jardin</option>
+                        <option value="Ville">Ville</option>
+                        <option value="Cour intérieure">Cour intérieure</option>
+                      </select>
+                    </div>
                   </div>
+                  
+                  {/* Tarification */}
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Tarif par nuit ($)
+                        Tarif par nuit ($) *
                       </label>
                       <input
                         type="number"
+                        min="0"
+                        step="0.01"
                         value={chambreForm.tarif}
                         onChange={(e) => setChambreForm({ ...chambreForm, tarif: Number(e.target.value) })}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        required
                       />
                     </div>
                     <div>
@@ -768,51 +985,169 @@ export default function AdminPage() {
                       </label>
                       <input
                         type="number"
+                        min="0"
                         value={chambreForm.point_par_nuits}
                         onChange={(e) => setChambreForm({ ...chambreForm, point_par_nuits: Number(e.target.value) })}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                       />
                     </div>
                   </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Vue
-                    </label>
-                    <input
-                      type="text"
-                      value={chambreForm.vue}
-                      onChange={(e) => setChambreForm({ ...chambreForm, vue: e.target.value })}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                    />
-                  </div>
+                  
+                  {/* Description */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Description
                     </label>
                     <textarea
-                      value={chambreForm.description}
+                      value={chambreForm.description || ''}
                       onChange={(e) => setChambreForm({ ...chambreForm, description: e.target.value })}
                       rows={3}
+                      placeholder="Décrivez la chambre, ses caractéristiques..."
                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     />
                   </div>
-                  <div className="flex items-center">
-                    <input
-                      type="checkbox"
-                      checked={chambreForm.isDisponible}
-                      onChange={(e) => setChambreForm({ ...chambreForm, isDisponible: e.target.checked })}
-                      className="mr-2"
-                    />
-                    <label className="text-sm font-medium text-gray-700">
-                      Disponible
+                  
+                  {/* Équipements */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Équipements
                     </label>
+                    <div className="flex gap-2 mb-3">
+                      <input
+                        type="text"
+                        value={newEquipement}
+                        onChange={(e) => setNewEquipement(e.target.value)}
+                        placeholder="Ajouter un équipement"
+                        className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        onKeyPress={(e) => {
+                          if (e.key === 'Enter' && newEquipement.trim()) {
+                            setChambreForm({ 
+                              ...chambreForm, 
+                              equipements: [...(chambreForm.equipements || []), newEquipement.trim()]
+                            });
+                            setNewEquipement('');
+                          }
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (newEquipement.trim()) {
+                            setChambreForm({ 
+                              ...chambreForm, 
+                              equipements: [...(chambreForm.equipements || []), newEquipement.trim()]
+                            });
+                            setNewEquipement('');
+                          }
+                        }}
+                        className="px-3 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+                      >
+                        <Plus className="w-4 h-4" />
+                      </button>
+                    </div>
+                    
+                    {/* Liste des équipements */}
+                    <div className="flex flex-wrap gap-2">
+                      {chambreForm.equipements?.map((equipement, index) => (
+                        <span
+                          key={index}
+                          className="inline-flex items-center gap-1 px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm"
+                        >
+                          {equipement}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const newEquipements = chambreForm.equipements?.filter((_, i) => i !== index) || [];
+                              setChambreForm({ ...chambreForm, equipements: newEquipements });
+                            }}
+                            className="ml-1 text-blue-600 hover:text-blue-800"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                  
+                  {/* Photos */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Photos de la chambre
+                    </label>
+                    <input
+                      type="file"
+                      multiple
+                      accept="image/*"
+                      onChange={async (e) => {
+                        const files = e.target.files;
+                        if (files && files.length > 0) {
+                          const uploadedUrls = await uploadPhotos(files);
+                          setChambreForm({
+                            ...chambreForm,
+                            photos: [...(chambreForm.photos || []), ...uploadedUrls]
+                          });
+                        }
+                      }}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      disabled={uploadingPhotos}
+                    />
+                    
+                    {uploadingPhotos && (
+                      <div className="mt-2 flex items-center text-sm text-blue-600">
+                        <div className="animate-spin rounded-full h-4 w-4 border-2 border-blue-600 border-t-transparent mr-2"></div>
+                        Upload en cours...
+                      </div>
+                    )}
+                    
+                    {/* Aperçu des photos */}
+                    {chambreForm.photos && chambreForm.photos.length > 0 && (
+                      <div className="mt-4 grid grid-cols-3 gap-3">
+                        {chambreForm.photos.map((photo, index) => (
+                          <div key={index} className="relative group">
+                            <img
+                              src={photo}
+                              alt={`Photo ${index + 1}`}
+                              className="w-full h-24 object-cover rounded-md border"
+                            />
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                await deletePhoto(photo);
+                                const newPhotos = chambreForm.photos?.filter((_, i) => i !== index) || [];
+                                setChambreForm({ ...chambreForm, photos: newPhotos });
+                              }}
+                              className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  
+                  {/* Statut */}
+                  <div className="flex items-center space-x-4">
+                    <div className="flex items-center">
+                      <input
+                        type="checkbox"
+                        id="disponible"
+                        checked={chambreForm.isDisponible}
+                        onChange={(e) => setChambreForm({ ...chambreForm, isDisponible: e.target.checked })}
+                        className="mr-2 rounded"
+                      />
+                      <label htmlFor="disponible" className="text-sm font-medium text-gray-700">
+                        Chambre disponible
+                      </label>
+                    </div>
                   </div>
                 </div>
               )}
 
               {/* Vue détaillée Chambre */}
               {activeTab === 'chambres' && modalType === 'view' && selectedItem && (
-                <div className="space-y-4">
+                <div className="space-y-6">
+                  {/* Informations de base */}
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <span className="font-medium text-gray-700">Numéro:</span>
@@ -840,19 +1175,63 @@ export default function AdminPage() {
                     </div>
                     <div>
                       <span className="font-medium text-gray-700">Vue:</span>
-                      <p className="text-gray-900">{selectedItem.vue}</p>
+                      <p className="text-gray-900">{selectedItem.vue || 'Non spécifiée'}</p>
                     </div>
                     <div>
                       <span className="font-medium text-gray-700">Status:</span>
-                      <p className="text-gray-900">{selectedItem.isDisponible ? 'Disponible' : 'Occupée'}</p>
+                      <p className={`font-medium ${selectedItem.isDisponible ? 'text-green-600' : 'text-red-600'}`}>
+                        {selectedItem.isDisponible ? 'Disponible' : 'Occupée'}
+                      </p>
                     </div>
                   </div>
+                  
+                  {/* Description */}
                   {selectedItem.description && (
                     <div>
                       <span className="font-medium text-gray-700">Description:</span>
-                      <p className="text-gray-900">{selectedItem.description}</p>
+                      <p className="text-gray-900 mt-1">{selectedItem.description}</p>
                     </div>
                   )}
+                  
+                  {/* Équipements */}
+                  {selectedItem.equipements && selectedItem.equipements.length > 0 && (
+                    <div>
+                      <span className="font-medium text-gray-700">Équipements:</span>
+                      <div className="flex flex-wrap gap-2 mt-2">
+                        {selectedItem.equipements.map((equipement: string, index: number) => (
+                          <span
+                            key={index}
+                            className="inline-flex items-center px-3 py-1 bg-gray-100 text-gray-800 rounded-full text-sm"
+                          >
+                            {equipement}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Photos */}
+                  {selectedItem.photos && selectedItem.photos.length > 0 && (
+                    <div>
+                      <span className="font-medium text-gray-700">Photos:</span>
+                      <div className="grid grid-cols-2 gap-3 mt-2">
+                        {selectedItem.photos.map((photo: string, index: number) => (
+                          <img
+                            key={index}
+                            src={photo}
+                            alt={`Photo ${index + 1}`}
+                            className="w-full h-32 object-cover rounded-md border"
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Dates */}
+                  <div>
+                    <span className="font-medium text-gray-700">Créé le:</span>
+                    <p className="text-gray-900">{new Date(selectedItem.created_at).toLocaleDateString("fr-FR")}</p>
+                  </div>
                 </div>
               )}
 
