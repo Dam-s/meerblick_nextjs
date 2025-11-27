@@ -16,7 +16,12 @@ import {
   Search,
   Save,
   X,
-  Eye
+  Eye,
+  MessageSquare,
+  Star,
+  DollarSign,
+  Upload,
+  Image as ImageIcon
 } from "lucide-react";
 
 interface Client {
@@ -49,7 +54,23 @@ interface Reservation {
   };
 }
 
-type ActiveTab = 'clients' | 'chambres' | 'reservations';
+interface Enquete {
+  id: string;
+  commentaire?: string;
+  note: number;
+  date_enquete: string;
+  id_reservation: string;
+  reservation?: {
+    client?: {
+      nom: string;
+    };
+    chambre?: {
+      numero: string;
+    };
+  };
+}
+
+type ActiveTab = 'clients' | 'chambres' | 'reservations' | 'enquetes';
 type ModalType = 'create' | 'edit' | 'view' | null;
 
 export default function AdminPage() {
@@ -62,6 +83,7 @@ export default function AdminPage() {
   const [clients, setClients] = useState<Client[]>([]);
   const [chambres, setChambres] = useState<Chambre[]>([]);
   const [reservations, setReservations] = useState<Reservation[]>([]);
+  const [enquetes, setEnquetes] = useState<Enquete[]>([]);
   
   // Modal
   const [modalType, setModalType] = useState<ModalType>(null);
@@ -98,6 +120,13 @@ export default function AdminPage() {
     statut: 'confirmee',
     id_client: '',
     id_chambre: ''
+  });
+  
+  const [enqueteForm, setEnqueteForm] = useState({
+    commentaire: '',
+    note: 5,
+    date_enquete: '',
+    id_reservation: ''
   });
 
   // Recherche et filtres
@@ -157,6 +186,7 @@ export default function AdminPage() {
       loadClients(),
       loadChambres(),
       loadReservations(),
+      loadEnquetes(),
       calculateStats()
     ]);
   };
@@ -192,6 +222,21 @@ export default function AdminPage() {
     if (!error) setReservations(data || []);
   };
 
+  const loadEnquetes = async () => {
+    const { data, error } = await supabase
+      .from("enquete")
+      .select(`
+        *,
+        reservation:id_reservation(
+          client:id_client(nom),
+          chambre:id_chambre(numero)
+        )
+      `)
+      .order("date_enquete", { ascending: false });
+    
+    if (!error) setEnquetes(data || []);
+  };
+
   // Gestion des modals
   const openModal = (type: ModalType, item?: any) => {
     setModalType(type);
@@ -199,11 +244,44 @@ export default function AdminPage() {
     
     if (type === 'edit' && item) {
       if (activeTab === 'clients') {
-        setClientForm(item);
+        setClientForm({
+          nom: item.nom || '',
+          points_fidelite: item.points_fidelite || 0,
+          role: item.role || 'client'
+        });
       } else if (activeTab === 'chambres') {
-        setChambreForm(item);
+        setChambreForm({
+          numero: item.numero || '',
+          type_chambre: item.type_chambre || '',
+          capacite: item.capacite || 1,
+          vue: item.vue || '',
+          etage: item.etage || 1,
+          tarif: item.tarif || 0,
+          description: item.description || '',
+          point_par_nuits: item.point_par_nuits || 0,
+          isDisponible: item.isDisponible !== undefined ? item.isDisponible : true,
+          equipements: item.equipements || [],
+          photos: item.photos || []
+        });
       } else if (activeTab === 'reservations') {
-        setReservationForm(item);
+        setReservationForm({
+          date_debut: item.date_debut ? item.date_debut.split('T')[0] : '',
+          date_fin: item.date_fin ? item.date_fin.split('T')[0] : '',
+          nb_personnes: item.nb_personnes || 1,
+          montant_total: item.montant_total || 0,
+          rabais_applique: item.rabais_applique || 0,
+          demandes_speciales: item.demandes_speciales || '',
+          statut: item.statut || 'confirmee',
+          id_client: item.id_client || '',
+          id_chambre: item.id_chambre || ''
+        });
+      } else if (activeTab === 'enquetes') {
+        setEnqueteForm({
+          commentaire: item.commentaire || '',
+          note: item.note || 5,
+          date_enquete: item.date_enquete ? new Date(item.date_enquete).toISOString().slice(0, 16) : '',
+          id_reservation: item.id_reservation || ''
+        });
       }
     } else if (type === 'create') {
       // Reset forms
@@ -233,6 +311,12 @@ export default function AdminPage() {
         id_client: '',
         id_chambre: ''
       });
+      setEnqueteForm({
+        commentaire: '',
+        note: 5,
+        date_enquete: '',
+        id_reservation: ''
+      });
     }
   };
 
@@ -246,9 +330,11 @@ export default function AdminPage() {
     try {
       if (activeTab === 'clients') {
         if (modalType === 'create') {
-          await supabase.from("client").insert([clientForm]);
-        } else if (modalType === 'edit') {
-          await supabase.from("client").update(clientForm).eq('id', selectedItem.id);
+          const { error } = await supabase.from("client").insert([clientForm]);
+          if (error) throw error;
+        } else if (modalType === 'edit' && selectedItem) {
+          const { error } = await supabase.from("client").update(clientForm).eq('id', selectedItem.id);
+          if (error) throw error;
         }
         await loadClients();
       } else if (activeTab === 'chambres') {
@@ -264,25 +350,39 @@ export default function AdminPage() {
         }
         
         if (modalType === 'create') {
-          await supabase.from("chambre").insert([chambreData]);
-        } else if (modalType === 'edit') {
-          await supabase.from("chambre").update(chambreData).eq('id', selectedItem.id);
+          const { error } = await supabase.from("chambre").insert([chambreData]);
+          if (error) throw error;
+        } else if (modalType === 'edit' && selectedItem) {
+          const { error } = await supabase.from("chambre").update(chambreData).eq('id', selectedItem.id);
+          if (error) throw error;
         }
         await loadChambres();
         await calculateStats(); // Recalculer les stats après modification
       } else if (activeTab === 'reservations') {
         if (modalType === 'create') {
-          await supabase.from("reservation").insert([reservationForm]);
-        } else if (modalType === 'edit') {
-          await supabase.from("reservation").update(reservationForm).eq('id', selectedItem.id);
+          const { error } = await supabase.from("reservation").insert([reservationForm]);
+          if (error) throw error;
+        } else if (modalType === 'edit' && selectedItem) {
+          const { error } = await supabase.from("reservation").update(reservationForm).eq('id', selectedItem.id);
+          if (error) throw error;
         }
         await loadReservations();
+      } else if (activeTab === 'enquetes') {
+        if (modalType === 'create') {
+          const { error } = await supabase.from("enquete").insert([enqueteForm]);
+          if (error) throw error;
+        } else if (modalType === 'edit' && selectedItem) {
+          const { error } = await supabase.from("enquete").update(enqueteForm).eq('id', selectedItem.id);
+          if (error) throw error;
+        }
+        await loadEnquetes();
       }
       
       closeModal();
     } catch (error) {
       console.error("Erreur sauvegarde:", error);
-      alert("Erreur lors de la sauvegarde");
+      const errorMessage = error instanceof Error ? error.message : "Erreur inconnue";
+      alert(`Erreur lors de la sauvegarde: ${errorMessage}`);
     }
   };
 
@@ -299,6 +399,9 @@ export default function AdminPage() {
       } else if (activeTab === 'reservations') {
         await supabase.from("reservation").delete().eq('id', id);
         await loadReservations();
+      } else if (activeTab === 'enquetes') {
+        await supabase.from("enquete").delete().eq('id', id);
+        await loadEnquetes();
       }
     } catch (error) {
       console.error("Erreur suppression:", error);
@@ -419,6 +522,10 @@ export default function AdminPage() {
       } else if (activeTab === 'reservations') {
         return item.client?.nom?.toLowerCase().includes(searchLower) ||
                item.chambre?.numero?.toLowerCase().includes(searchLower);
+      } else if (activeTab === 'enquetes') {
+        return item.commentaire?.toLowerCase().includes(searchLower) ||
+               item.reservation?.client?.nom?.toLowerCase().includes(searchLower) ||
+               item.reservation?.chambre?.numero?.toLowerCase().includes(searchLower);
       }
       
       return false;
@@ -453,7 +560,7 @@ export default function AdminPage() {
               Administration
             </h1>
             <p className="text-gray-600">
-              Gestion des clients, chambres et réservations
+              Gestion des clients, chambres, réservations et enquêtes
             </p>
           </div>
 
@@ -551,6 +658,17 @@ export default function AdminPage() {
                   <Calendar className="w-5 h-5 mr-2" />
                   Réservations ({reservations.length})
                 </button>
+                <button
+                  onClick={() => setActiveTab('enquetes')}
+                  className={`flex items-center px-6 py-4 text-sm font-medium border-b-2 ${
+                    activeTab === 'enquetes'
+                      ? 'border-blue-500 text-blue-600 bg-blue-50'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+                >
+                  <MessageSquare className="w-5 h-5 mr-2" />
+                  Enquêtes ({enquetes.length})
+                </button>
               </nav>
             </div>
 
@@ -572,7 +690,7 @@ export default function AdminPage() {
                   className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center"
                 >
                   <Plus className="w-4 h-4 mr-2" />
-                  Nouveau {activeTab === 'clients' ? 'Client' : activeTab === 'chambres' ? 'Chambre' : 'Réservation'}
+                  Nouveau {activeTab === 'clients' ? 'Client' : activeTab === 'chambres' ? 'Chambre' : activeTab === 'reservations' ? 'Réservation' : 'Enquête'}
                 </button>
               </div>
             </div>
@@ -791,6 +909,87 @@ export default function AdminPage() {
                   </table>
                 </div>
               )}
+
+              {/* Table Enquêtes */}
+              {activeTab === 'enquetes' && (
+                <div className="overflow-x-auto">
+                  <table className="min-w-full divide-y divide-gray-200">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Client</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Chambre</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Note</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Commentaire</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody className="bg-white divide-y divide-gray-200">
+                      {filterData(enquetes).map((enquete) => (
+                        <tr key={enquete.id} className="hover:bg-gray-50">
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="text-sm font-medium text-gray-900">
+                              {enquete.reservation?.client?.nom || 'N/A'}
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="text-sm text-gray-900">
+                              #{enquete.reservation?.chambre?.numero || 'N/A'}
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap">
+                            <div className="flex items-center">
+                              <span className="text-sm font-medium text-gray-900 mr-1">{enquete.note}</span>
+                              <div className="flex">
+                                {[...Array(5)].map((_, i) => (
+                                  <Star
+                                    key={i}
+                                    className={`w-4 h-4 ${
+                                      i < enquete.note 
+                                        ? 'text-yellow-400 fill-current' 
+                                        : 'text-gray-300'
+                                    }`}
+                                  />
+                                ))}
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 max-w-xs">
+                            <div className="text-sm text-gray-900 truncate" title={enquete.commentaire}>
+                              {enquete.commentaire || 'Aucun commentaire'}
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                            {new Date(enquete.date_enquete).toLocaleDateString("fr-FR")}
+                          </td>
+                          <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                            <div className="flex space-x-2">
+                              <button
+                                onClick={() => openModal('view', enquete)}
+                                className="text-blue-600 hover:text-blue-900"
+                              >
+                                <Eye className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => openModal('edit', enquete)}
+                                className="text-indigo-600 hover:text-indigo-900"
+                              >
+                                <Edit2 className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={() => handleDelete(enquete.id)}
+                                className="text-red-600 hover:text-red-900"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -802,9 +1001,9 @@ export default function AdminPage() {
           <div className="bg-white rounded-lg max-w-2xl w-full max-h-[90vh] overflow-y-auto shadow-2xl">
             <div className="flex items-center justify-between p-6 border-b">
               <h3 className="text-lg font-semibold text-gray-900">
-                {modalType === 'create' && `Nouveau ${activeTab === 'clients' ? 'Client' : activeTab === 'chambres' ? 'Chambre' : 'Réservation'}`}
-                {modalType === 'edit' && `Modifier ${activeTab === 'clients' ? 'Client' : activeTab === 'chambres' ? 'Chambre' : 'Réservation'}`}
-                {modalType === 'view' && `Détails ${activeTab === 'clients' ? 'Client' : activeTab === 'chambres' ? 'Chambre' : 'Réservation'}`}
+                {modalType === 'create' && `Nouveau ${activeTab === 'clients' ? 'Client' : activeTab === 'chambres' ? 'Chambre' : activeTab === 'reservations' ? 'Réservation' : 'Enquête'}`}
+                {modalType === 'edit' && `Modifier ${activeTab === 'clients' ? 'Client' : activeTab === 'chambres' ? 'Chambre' : activeTab === 'reservations' ? 'Réservation' : 'Enquête'}`}
+                {modalType === 'view' && `Détails ${activeTab === 'clients' ? 'Client' : activeTab === 'chambres' ? 'Chambre' : activeTab === 'reservations' ? 'Réservation' : 'Enquête'}`}
               </h3>
               <button
                 onClick={closeModal}
@@ -1406,6 +1605,132 @@ export default function AdminPage() {
                     <div>
                       <span className="font-medium text-gray-700">Demandes spéciales:</span>
                       <p className="text-gray-900">{selectedItem.demandes_speciales}</p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Formulaire Enquête */}
+              {activeTab === 'enquetes' && modalType !== 'view' && (
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Réservation
+                    </label>
+                    <select
+                      value={enqueteForm.id_reservation}
+                      onChange={(e) => setEnqueteForm({ ...enqueteForm, id_reservation: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      required
+                    >
+                      <option value="">Sélectionnez une réservation</option>
+                      {reservations.map((reservation) => (
+                        <option key={reservation.id} value={reservation.id}>
+                          {reservation.client?.nom} - Chambre #{reservation.chambre?.numero} ({new Date(reservation.date_debut).toLocaleDateString("fr-FR")})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Note (1-10)
+                    </label>
+                    <div className="flex items-center space-x-2">
+                      <input
+                        type="range"
+                        min="1"
+                        max="10"
+                        value={enqueteForm.note}
+                        onChange={(e) => setEnqueteForm({ ...enqueteForm, note: Number(e.target.value) })}
+                        className="flex-1"
+                      />
+                      <div className="flex items-center space-x-1 min-w-[120px]">
+                        <span className="font-medium">{enqueteForm.note}</span>
+                        <div className="flex">
+                          {[...Array(5)].map((_, i) => (
+                            <Star
+                              key={i}
+                              className={`w-4 h-4 ${
+                                i < Math.ceil(enqueteForm.note / 2) 
+                                  ? 'text-yellow-400 fill-current' 
+                                  : 'text-gray-300'
+                              }`}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Date d'enquête
+                    </label>
+                    <input
+                      type="datetime-local"
+                      value={enqueteForm.date_enquete}
+                      onChange={(e) => setEnqueteForm({ ...enqueteForm, date_enquete: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                      required
+                    />
+                  </div>
+                  
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Commentaire
+                    </label>
+                    <textarea
+                      value={enqueteForm.commentaire}
+                      onChange={(e) => setEnqueteForm({ ...enqueteForm, commentaire: e.target.value })}
+                      rows={4}
+                      placeholder="Partagez votre expérience..."
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* Vue détaillée Enquête */}
+              {activeTab === 'enquetes' && modalType === 'view' && selectedItem && (
+                <div className="space-y-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <span className="font-medium text-gray-700">Client:</span>
+                      <p className="text-gray-900">{selectedItem.reservation?.client?.nom || 'N/A'}</p>
+                    </div>
+                    <div>
+                      <span className="font-medium text-gray-700">Chambre:</span>
+                      <p className="text-gray-900">#{selectedItem.reservation?.chambre?.numero || 'N/A'}</p>
+                    </div>
+                    <div>
+                      <span className="font-medium text-gray-700">Note:</span>
+                      <div className="flex items-center space-x-2">
+                        <span className="text-gray-900">{selectedItem.note}/10</span>
+                        <div className="flex">
+                          {[...Array(5)].map((_, i) => (
+                            <Star
+                              key={i}
+                              className={`w-4 h-4 ${
+                                i < Math.ceil(selectedItem.note / 2) 
+                                  ? 'text-yellow-400 fill-current' 
+                                  : 'text-gray-300'
+                              }`}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                    <div>
+                      <span className="font-medium text-gray-700">Date:</span>
+                      <p className="text-gray-900">{new Date(selectedItem.date_enquete).toLocaleDateString("fr-FR")}</p>
+                    </div>
+                  </div>
+                  
+                  {selectedItem.commentaire && (
+                    <div>
+                      <span className="font-medium text-gray-700">Commentaire:</span>
+                      <p className="text-gray-900 mt-1 p-3 bg-gray-50 rounded-md">{selectedItem.commentaire}</p>
                     </div>
                   )}
                 </div>

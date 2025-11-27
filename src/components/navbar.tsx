@@ -17,26 +17,51 @@ export default function Navbar() {
   const [client, setClient] = useState<any>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [sessionChecked, setSessionChecked] = useState(false);
 
   // Vérifier l'état de connexion au chargement
   useEffect(() => {
     const checkUser = async () => {
-      const { data: { user } } = await supabase.auth.getUser();
-      setUser(user);
+      if (sessionChecked) return; // Éviter les vérifications multiples
       
-      if (user) {
-        // Récupérer les données client pour vérifier le rôle
-        const { data: clientData, error } = await supabase
-          .from("client")
-          .select("*")
-          .eq("auth_user_id", user.id)
-          .single();
+      try {
+        const { data: { user }, error } = await supabase.auth.getUser();
         
-        if (!error && clientData) {
-          setClient(clientData);
+        if (error) {
+          // Ne pas traiter 'Auth session missing' comme une erreur critique
+          if (!error.message.includes('Auth session missing')) {
+            console.error("Erreur lors de la vérification de l'utilisateur:", error);
+          }
+          setUser(null);
+          setClient(null);
+          setSessionChecked(true);
+          return;
         }
-      } else {
+        
+        setUser(user);
+        
+        if (user) {
+          // Récupérer les données client pour vérifier le rôle
+          const { data: clientData, error: clientError } = await supabase
+            .from("client")
+            .select("*")
+            .eq("auth_user_id", user.id)
+            .single();
+          
+          if (!clientError && clientData) {
+            setClient(clientData);
+          } else {
+            setClient(null);
+          }
+        } else {
+          setClient(null);
+        }
+      } catch (error) {
+        console.error("Erreur lors de la vérification de session:", error);
+        setUser(null);
         setClient(null);
+      } finally {
+        setSessionChecked(true);
       }
     };
     
@@ -45,44 +70,106 @@ export default function Navbar() {
     // Écouter les changements d'authentification
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        setUser(session?.user ?? null);
+        console.log('Auth state change:', event, session?.user?.email);
         
-        if (session?.user) {
-          // Récupérer les données client pour vérifier le rôle
-          const { data: clientData, error } = await supabase
-            .from("client")
-            .select("*")
-            .eq("auth_user_id", session.user.id)
-            .single();
-          
-          if (!error && clientData) {
-            setClient(clientData);
+        // Ne traiter que les événements importants
+        if (event === 'SIGNED_IN' || event === 'SIGNED_OUT' || event === 'TOKEN_REFRESHED') {
+          if (event === 'SIGNED_OUT') {
+            // Déconnexion : nettoyer immédiatement l'état
+            setUser(null);
+            setClient(null);
+            return;
           }
-        } else {
-          setClient(null);
+          
+          setUser(session?.user ?? null);
+          
+          if (session?.user) {
+            try {
+              // Récupérer les données client pour vérifier le rôle
+              const { data: clientData, error } = await supabase
+                .from("client")
+                .select("*")
+                .eq("auth_user_id", session.user.id)
+                .single();
+              
+              if (!error && clientData) {
+                setClient(clientData);
+              } else {
+                setClient(null);
+              }
+            } catch (error: any) {
+              console.error("Erreur lors de la récupération des données client:", error);
+              // Ne pas traiter comme une erreur critique si c'est juste une session manquante
+              if (!error.message?.includes('Auth session missing')) {
+                setClient(null);
+              }
+            }
+          }
         }
       }
     );
 
-    return () => subscription.unsubscribe();
-  }, []);
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, [sessionChecked]);
 
   // Fonction de déconnexion
   const handleLogout = async () => {
     setLoading(true);
     try {
-      await supabase.auth.signOut();
+      // Nettoyer l'état local d'abord pour éviter les erreurs de session
       setUser(null);
       setClient(null);
+      setSessionChecked(false);
+      
+      // Essayer de se déconnecter de Supabase
+      const { error } = await supabase.auth.signOut({ scope: 'local' });
+      
+      // Ne pas lever d'erreur si la session était déjà expirée
+      if (error && error.message !== 'Auth session missing!') {
+        console.error("Erreur lors de la déconnexion:", error);
+        // Ne pas afficher d'erreur à l'utilisateur pour les problèmes de session manquante
+      }
+      
+      // Rediriger vers la page d'accueil dans tous les cas
       router.push("/");
-    } catch (error) {
+    } catch (error: any) {
       console.error("Erreur lors de la déconnexion:", error);
+      // Nettoyer l'état même en cas d'erreur
+      setUser(null);
+      setClient(null);
+      setSessionChecked(false);
+      
+      // Seules certaines erreurs méritent d'être affichées à l'utilisateur
+      if (error.message && !error.message.includes('Auth session missing')) {
+        alert("Erreur lors de la déconnexion. Vous avez été déconnecté localement.");
+      }
+      
+      // Rediriger même en cas d'erreur
+      router.push("/");
     } finally {
       setLoading(false);
     }
   };
   
   
+  // Afficher un loading pendant la vérification de session initiale
+  if (!sessionChecked) {
+    return (
+      <header className="sticky top-0 z-40 w-full bg-white/70 backdrop-blur supports-backdrop-filter:bg-white/60">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <div className="flex h-16 items-center justify-between">
+            <div className="flex items-center gap-2 mt-4 w-20 h-20">
+              <Image src={logo_meerblick} alt="logo meerblick" />
+            </div>
+            <div className="animate-pulse bg-gray-200 h-8 w-24 rounded"></div>
+          </div>
+        </div>
+      </header>
+    );
+  }
+
   return (
     <header className="sticky top-0 z-40 w-full bg-white/70 backdrop-blur supports-backdrop-filter:bg-white/60">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
