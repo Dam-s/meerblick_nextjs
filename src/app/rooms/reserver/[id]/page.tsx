@@ -7,6 +7,7 @@ import { Chambre } from "@/lib/type";
 import Navbar from "@/components/navbar";
 import Footer from "@/components/footer";
 import Image from "next/image";
+import { BadgeDollarSign } from "lucide-react";
 
 interface Client {
   id: string;
@@ -152,8 +153,8 @@ export default function ReservationPage() {
     const finalTotal = subtotalAmount - discountAmount;
     setTotal(finalTotal);
 
-    // Points gagnés (1 point par euro dépensé)
-    const pointsEarned = Math.floor(finalTotal);
+    // Points gagnés (nombre de nuits × points_par_nuits de la chambre)
+    const pointsEarned = diffDays * room.point_par_nuits;
     setPointsToEarn(pointsEarned);
 
   }, [dateDebut, dateFin, room, client]);
@@ -189,7 +190,8 @@ export default function ReservationPage() {
           date_reservation: new Date().toISOString(),
           statut: "confirmee",
           id_client: client.id,
-          id_chambre: room.id
+          id_chambre: room.id,
+          demandes_speciales: demandes
         })
         .select()
         .single();
@@ -343,7 +345,8 @@ export default function ReservationPage() {
                       </div>
                       {discount > 0 && (
                         <div className="mt-2 text-sm text-green-700 bg-green-50 p-2 rounded border border-green-200">
-                          🎉 Rabais fidélité appliqué: ${discount.toFixed(2)}
+                          <BadgeDollarSign className="inline w-4 h-4 mr-1" />
+                          Rabais fidélité appliqué: ${discount.toFixed(2)}
                         </div>
                       )}
                     </div>

@@ -24,6 +24,7 @@ interface Reservation {
   montant_total: number;
   rabais_applique: number;
   date_reservation: string;
+  demandes_speciales: string;
   statut: string;
   chambre: {
     id: string;
