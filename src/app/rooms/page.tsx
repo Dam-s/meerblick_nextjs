@@ -21,7 +21,7 @@ export default function roomsPage() {
     const [chambres, setChambres] = useState<Chambre[]>([]);
     const [selectedRoom, setSelectedRoom] = useState<Chambre | null>(null);
     const [isModalOpen, setIsModalOpen] = useState(false);
-    const [sidebarOpen, setSidebarOpen] = useState(true);
+    const [sidebarOpen, setSidebarOpen] = useState(false);
     
     // États pour les filtres
     const [filters, setFilters] = useState<Filters>({

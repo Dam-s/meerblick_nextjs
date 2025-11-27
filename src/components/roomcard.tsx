@@ -121,17 +121,16 @@ const RoomCard: React.FC<RoomCardProps> = ({ room, onReserve, onDetails }) => {
           >
             Détails
           </button>
-          <button
-            onClick={handleReserve}
-            disabled={!room.isDisponible}
-            className={`flex-1 font-medium py-2 px-3 rounded text-sm transition-colors duration-200 ${
+          <a
+            href={room.isDisponible ? `/rooms/reserver/${room.id}` : undefined}
+            className={`flex-1 font-medium py-2 px-3 rounded text-sm transition-colors duration-200 text-center inline-block ${
               room.isDisponible
                 ? "bg-blue-600 hover:bg-blue-700 text-white"
-                : "bg-gray-300 text-gray-500 cursor-not-allowed"
+                : "bg-gray-300 text-gray-500 cursor-not-allowed pointer-events-none"
             }`}
           >
             Réserver
-          </button>
+          </a>
         </div>
       </div>
     </div>

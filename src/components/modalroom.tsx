@@ -221,17 +221,16 @@ const RoomModal: React.FC<RoomModalProps> = ({ room, isOpen, onClose, onReserve 
             >
               Fermer
             </button>
-            <button
-              onClick={handleReserve}
-              disabled={!room.isDisponible}
-              className={`flex-1 font-semibold py-3 px-4 rounded-lg transition-all duration-200 hover:scale-105 ${
+            <a
+              href={room.isDisponible ? `/rooms/reserver/${room.id}` : undefined}
+              className={`flex-1 font-semibold py-3 px-4 rounded-lg transition-all duration-200 hover:scale-105 text-center inline-block ${
                 room.isDisponible
                   ? "bg-linear-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white shadow-lg"
-                  : "bg-gray-300 text-gray-500 cursor-not-allowed"
+                  : "bg-gray-300 text-gray-500 cursor-not-allowed pointer-events-none"
               }`}
             >
               {room.isDisponible ? "Réserver maintenant" : "❌ Indisponible"}
-            </button>
+            </a>
           </div>
         </div>
       </div>
