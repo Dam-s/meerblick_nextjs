@@ -1,4 +1,5 @@
 import { brand } from "./brand";
+import Link from "next/link";
 // import SearchBar from './searchbar';
 
 
@@ -28,6 +29,13 @@ export default function Hero() {
             {/* <div className="mt-10">
               <SearchBar onSearch={onGoRooms} />
             </div> */}
+            <Link
+              href="/rooms"
+              className="inline-block mt-6 px-6 py-3  font-semibold  shadow-md "
+              style={{ backgroundColor: brand.secondary }}
+            >
+              Voir les chambres
+            </Link>
           </div>
           {/* Bloc droit : image */}
 

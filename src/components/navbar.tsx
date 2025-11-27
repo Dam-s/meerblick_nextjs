@@ -14,6 +14,7 @@ import { useRouter } from "next/navigation";
 export default function Navbar() {
   const router = useRouter();
   const [user, setUser] = useState<any>(null);     
+  const [client, setClient] = useState<any>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [loading, setLoading] = useState(false);
 
@@ -22,14 +23,44 @@ export default function Navbar() {
     const checkUser = async () => {
       const { data: { user } } = await supabase.auth.getUser();
       setUser(user);
+      
+      if (user) {
+        // Récupérer les données client pour vérifier le rôle
+        const { data: clientData, error } = await supabase
+          .from("client")
+          .select("*")
+          .eq("auth_user_id", user.id)
+          .single();
+        
+        if (!error && clientData) {
+          setClient(clientData);
+        }
+      } else {
+        setClient(null);
+      }
     };
     
     checkUser();
 
     // Écouter les changements d'authentification
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (event, session) => {
+      async (event, session) => {
         setUser(session?.user ?? null);
+        
+        if (session?.user) {
+          // Récupérer les données client pour vérifier le rôle
+          const { data: clientData, error } = await supabase
+            .from("client")
+            .select("*")
+            .eq("auth_user_id", session.user.id)
+            .single();
+          
+          if (!error && clientData) {
+            setClient(clientData);
+          }
+        } else {
+          setClient(null);
+        }
       }
     );
 
@@ -42,6 +73,7 @@ export default function Navbar() {
     try {
       await supabase.auth.signOut();
       setUser(null);
+      setClient(null);
       router.push("/");
     } catch (error) {
       console.error("Erreur lors de la déconnexion:", error);
@@ -68,7 +100,9 @@ export default function Navbar() {
             <Link href="/" className="hover:opacity-80">Accueil</Link>
             <Link href="/rooms" className="hover:opacity-80">Chambres</Link>
             <Link href="/espace-client" className="hover:opacity-80">Espace Client</Link>
-            <Link href="/admin" className="hover:opacity-80">Admin</Link>
+            {client && client.role === 'admin' && (
+              <Link href="/admin" className="hover:opacity-80">Admin</Link>
+            )}
             
             {user ? (
               <div className="flex items-center gap-3">
@@ -136,13 +170,15 @@ export default function Navbar() {
               >
                 Espace Client
               </Link>
-              <Link 
-                href="/admin" 
-                className="block py-2 text-base font-medium text-gray-900 hover:opacity-80"
-                onClick={() => setMobileOpen && setMobileOpen(false)}
-              >
-                Admin
-              </Link>
+              {client && client.role === 'admin' && (
+                <Link 
+                  href="/admin" 
+                  className="block py-2 text-base font-medium text-gray-900 hover:opacity-80"
+                  onClick={() => setMobileOpen && setMobileOpen(false)}
+                >
+                  Admin
+                </Link>
+              )}
               
               {user ? (
                 <div className="space-y-3 pt-2 border-t border-gray-100">

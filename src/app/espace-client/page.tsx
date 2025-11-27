@@ -33,6 +33,7 @@ interface Reservation {
     vue: string;
     etage: number;
     photos: string[];
+    point_par_nuits: number;
   };
 }
 
@@ -90,7 +91,8 @@ export default function EspaceClientPage() {
               type_chambre,
               vue,
               etage,
-              photos
+              photos,
+              point_par_nuits
             )
           `)
           .eq("id_client", clientData.id)
@@ -303,7 +305,7 @@ export default function EspaceClientPage() {
                           <td className="px-6 py-4 whitespace-nowrap">
                             <div className="flex items-center text-amber-600">
                               <Star className="w-4 h-4 mr-1 fill-current" />
-                              <span className="text-sm font-medium">+{Math.floor(reservation.montant_total)}</span>
+                              <span className="text-sm font-medium">+{nights * reservation.chambre.point_par_nuits}</span>
                             </div>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">
